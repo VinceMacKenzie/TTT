@@ -61,27 +61,32 @@ addEventHandler("onPlayerChat", root,
 -- A /setadmin parancs kezelése
 addCommandHandler("setadmin",
     function (player, cmd, name, level)
-        if not hasObjectPermissionTo(player, "function.setPlayerAdmin") then -- Ellenőrzi, hogy a parancsot indító játékosnak megvan-e a megfelelő jogosultsága
+        if not hasObjectPermissionTo(player, "function.setPlayerAdmin") then
             outputChatBox("Nincs jogosultságod ehhez a parancshoz.", player, 255, 0, 0)
             return
         end
+
         local targetPlayer = getPlayerFromName(name)
         if not targetPlayer then
             outputChatBox("Nem található ilyen nevű játékos.", player, 255, 0, 0)
             return
         end
+
         local level = tonumber(level)
-        if not level or level < 0 then
-            outputChatBox("Hibás admin szint.", player, 255, 0, 0)
+        if not level or level < 0 or not admintag[level] then
+            outputChatBox("Lehetséges admin szintek:", player, 255, 0, 0)
+            for adminLevel, tag in pairs(admintag) do
+                local tagColor = string.sub(tag, 1, 7)
+                outputChatBox("     [" .. tagColor .. adminLevel .. "#ffffff] - " .. tag, player, 255, 255, 255, true)
+            end
             return
         end
-        setElementData(targetPlayer, "adminlevel", level) -- Beállítja a játékos admin szintjét
-        local newadmin = admintag[tonumber(level)]
-        if level > 0 then
-            outputChatBox("#d90b34[TTT - ADMIN] #1ebbd6" .. getPlayerName(targetPlayer) .. "#ffffff Adminszintjét beállította #1ebbd6" .. getPlayerName(player) .. "#ffffff a következőre: " .. newadmin, root, 255,0,0,true)
-        elseif level == 0 then
-            outputChatBox("#d90b34[TTT - ADMIN] #1ebbd6" .. getPlayerName(targetPlayer) .. "#ffffff Adminszintjét elvette: #1ebbd6" .. getPlayerName(player), root, 255,0,0,true)
-        end
+
+        setElementData(targetPlayer, "adminlevel", level)
+        local newAdmin = admintag[level]
+        local action = (level > 0) and "beállította" or "elvette"
+
+        outputChatBox("#d90b34[TTT - ADMIN] #1ebbd6" .. getPlayerName(targetPlayer) .. "#ffffff Adminszintjét " .. action .. " #1ebbd6" .. getPlayerName(player) .. "#ffffff a következőre: " .. newAdmin, root, 255, 0, 0, true)
     end
 )
 
@@ -318,43 +323,60 @@ addCommandHandler("teszt",
     end
 )
 
--- Fegyver elhelyezése a földön
-function placeWeaponOnGround(x, y, z)
-    local weaponObject = createObject(356, x, y, z-0.9)
-    setElementCollisionsEnabled(weaponObject, true)
-    setObjectRotation(weaponObject, 90, 0, 0)  -- Forgatás 90 fokkal a Z tengely körül
-    return weaponObject
-end
-
--- Fegyver kiosztása a játékosnak
-function giveWeaponToPlayer(player)
-    outputChatBox("Fegyver felvéve", player)
-    giveWeapon(player, 31, 500)  -- M4A1 fegyver kiosztása a játékosnak
-end
-
--- A /weapon parancs kezelése
-addCommandHandler("weapon",
+addCommandHandler("players",
     function(player)
-        -- A fegyver helyének meghatározása (például a játékos pozíciójában)
-        local x, y, z = getElementPosition(player)
+        local onlinePlayers = getElementsByType("player")  -- Az összes online játékos lekérése
 
-        -- Fegyver elhelyezése a földön a játékos pozíciójában és forgatása
-        local weaponObject = placeWeaponOnGround(x, y, z)
-
-        -- Fegyver collision-jének meghatározása
-        local weaponColShape = createColSphere(x, y, z, 1)
-
-        -- Ha sikerült létrehozni a fegyvert és a collision-t, akkor figyeljük meg az érintést
-        if weaponObject and weaponColShape then
-            addEventHandler("onColShapeHit", weaponColShape,
-                function(hitElement, matchingDimension)
-                    -- Ellenőrizzük, hogy a hozzáért-e a játékos
-                    if hitElement and getElementType(hitElement) == "player" and matchingDimension then
-                        giveWeaponToPlayer(hitElement)  -- Fegyver kiosztása a játékosnak
-                        destroyElement(source)  -- Megsemmisítjük a collision-t, mivel már nem szükséges
-                    end
-                end
-            )
+        -- Ha vannak online játékosok, kiírjuk a nevüket
+        if onlinePlayers and #onlinePlayers > 0 then
+            local playerNames = {}  -- Egy üres tároló létrehozása a játékosnevek számára
+            for i, playerElement in ipairs(onlinePlayers) do
+                table.insert(playerNames, getPlayerName(playerElement))  -- Hozzáadjuk a játékos nevét a tárolóhoz
+            end
+            local playerList = table.concat(playerNames, ", ")  -- Összefűzzük a játékosneveket egy string-gé
+            outputChatBox("Online játékosok: " .. playerList, player, 0, 255, 0)  -- Kiírjuk az összes online játékost
+        else
+            outputChatBox("Nincsenek online játékosok.", player, 255, 0, 0)  -- Ha nincsenek online játékosok, erről értesítjük a parancsot indító játékost
         end
     end
 )
+
+function displayLoadedRes ( res )
+	outputChatBox ( "Resource #ff0000" .. getResourceName(res) .. "#ffffff újraindítva", root, 255, 255, 255, true )
+end
+addEventHandler ( "onResourceStart", root, displayLoadedRes )
+
+-- A /teams parancs kezelése
+addCommandHandler("teams",
+    function(player, cmd)
+        local playerAdminLevel = getElementData(player, "adminlevel") or 0
+        if playerAdminLevel < 1 then
+            outputChatBox("Nincs jogosultságod ehhez a parancshoz.", player, 255, 0, 0)
+            return
+        end
+
+        -- Végigiterálunk az összes csapaton
+        for _, team in ipairs(getElementsByType("team")) do
+            -- Megkapjuk a csapat nevét
+            local teamName = getTeamName(team)
+            -- Kezdő karakterlánc a játékosoknak
+            local playersString = "Játékosok: "
+            -- Megkapjuk a csapatban lévő játékosok listáját
+            local playersInTeam = getPlayersInTeam(team)
+            -- Ha a csapatban nincsenek játékosok, hozzáadjuk a "Nincsenek" üzenetet a karakterlánchoz
+            if #playersInTeam == 0 then
+                playersString = playersString .. "Nincsenek"
+            else
+                -- Ellenkező esetben felsoroljuk a játékosokat
+                for _, playerInTeam in ipairs(playersInTeam) do
+                    playersString = playersString .. "#ff0000" .. getPlayerName(playerInTeam) .. "#ffffff, "
+                end
+                -- Az utolsó vessző eltávolítása a karakterlánc végéről
+                playersString = string.sub(playersString, 1, -3)
+            end
+            -- Kiírjuk a csapat nevét és a játékosokat
+            outputChatBox("Csapat: " .. teamName .. " - " .. playersString, player, 255, 255, 255, true)
+        end
+    end
+)
+
